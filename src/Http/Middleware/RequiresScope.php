@@ -46,9 +46,14 @@ final class RequiresScope
             return self::refuse(500, 'scope_not_configured', "No scope is configured for the [{$group}] group.");
         }
 
+        // `is_callable()` on its own is not enough, and getting that wrong is
+        // how this would fail open. An Eloquent model has `__call()`, so
+        // `is_callable([$model, 'anything'])` is true and invoking it raises a
+        // BadMethodCallException — a 500, not a refusal. `method_exists()` asks
+        // the question that was meant: is there a real method to answer with?
         $answers = [$user, 'tokenCan'];
 
-        if (! is_callable($answers) || $answers($scope) !== true) {
+        if (! method_exists($user, 'tokenCan') || ! is_callable($answers) || $answers($scope) !== true) {
             return self::refuse(403, 'missing_scope', "This operation requires the [{$scope}] scope.");
         }
 

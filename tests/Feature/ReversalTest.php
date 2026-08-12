@@ -69,10 +69,17 @@ it('answers 409 for a second reversal under a different reason', function () {
         ->assertJsonPath('error.code', 'reversal_conflict');
 });
 
-it('refuses a reversal with no reason', function () {
+it('refuses a reversal whose reason is only whitespace', function () {
+    // The framework's TrimStrings and ConvertEmptyStringsToNull turn this into
+    // a missing field before the domain ever sees it, so it lands as a
+    // validation failure rather than as the domain's own refusal. Both are 422
+    // and both refuse; the point of the test is that a blank reason is never
+    // recorded.
     $this->postJson(api('/plans/order-9f2c/tenders/'.$this->tender.'/reversals'), ['reason' => '   '], ['Idempotency-Key' => 'rev-1'])
         ->assertStatus(422)
-        ->assertJsonPath('error.code', 'cannot_reverse_tender');
+        ->assertJsonPath('error.code', 'validation_failed');
+
+    $this->getJson(api('/plans/order-9f2c/tenders'))->assertJsonPath('meta.total', 1);
 });
 
 it('refuses to reverse a tender that was never captured', function () {
