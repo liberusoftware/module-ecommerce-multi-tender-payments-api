@@ -1,0 +1,13 @@
+name: Compatibility
+
+on:
+  push:
+    tags: ['[0-9]+.[0-9]+.[0-9]+']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compatibility:
+    uses: liberusoftware/.github/.github/workflows/package-compatibility.yml@main

@@ -1,0 +1,1124 @@
+{
+    "openapi": "3.1.1",
+    "info": {
+        "title": "Liberu Ecommerce — Multi-Tender Payments API",
+        "version": "0.1.0",
+        "summary": "Payment plans, admissions, an append-only tender ledger and outstanding balances.",
+        "description": "A fragment, meant to be merged into a host's document under the server prefix below.\n\nMulti-Tender Payments owns the plan and the arithmetic. It never moves money and it never holds a balance. Three figures are therefore never accepted from a caller: **the payable total**, **the outstanding balance** and **a tender's capacity**. All three are resolved server-side through contracts the domain publishes, and no request body or header in this document names any of them.\n\nA caller declares what it is *offering* — a tender kind and either an amount in minor units or a relative share. The module measures that offer against the total it resolved itself, refuses a plan that exceeds it, and partly spends a tender that falls short of what was asked of it.",
+        "license": {
+            "name": "MIT",
+            "identifier": "MIT"
+        }
+    },
+    "servers": [
+        {
+            "url": "/api/v1/ecommerce/multi-tender-payments",
+            "description": "Default prefix. A host may re-prefix these routes through config('multi-tender-payments-api.prefix')."
+        }
+    ],
+    "tags": [
+        {
+            "name": "Plans",
+            "description": "What an order costs and what it still owes. Both computed, never stored."
+        },
+        {
+            "name": "Tenders",
+            "description": "The append-only ledger: admitting a plan, recording a tender, reversing one."
+        }
+    ],
+    "paths": {
+        "/plans/{order}": {
+            "parameters": [
+                {
+                    "$ref": "#/components/parameters/OrderReference"
+                }
+            ],
+            "get": {
+                "operationId": "getPaymentPlan",
+                "x-route-name": "multi-tender-payments-api.plans.show",
+                "x-idempotency-key": "none",
+                "tags": [
+                    "Plans"
+                ],
+                "summary": "Read a plan, its payable total and its outstanding balance",
+                "description": "The payable total is resolved through `ResolvesPayableTotal` on every call and the balance is a fold over the ledger. There is no status field: `satisfied` is the fold reaching zero.\n\nThe plan row is opened if it does not exist yet. It carries an order reference and a currency and nothing else — no status, no cached balance — so materialising it changes no answer.",
+                "security": [
+                    {
+                        "apiToken": [
+                            "ecommerce:multi-tender-payments:read"
+                        ]
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The plan.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "data"
+                                    ],
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/components/schemas/PaymentPlan"
+                                        }
+                                    }
+                                },
+                                "example": {
+                                    "data": {
+                                        "order_reference": "order-9f2c",
+                                        "currency": "GBP",
+                                        "payable_total": {
+                                            "minor": 16000,
+                                            "currency": "GBP",
+                                            "exponent": 2,
+                                            "decimal": "160.00"
+                                        },
+                                        "outstanding": {
+                                            "minor": 12000,
+                                            "currency": "GBP",
+                                            "exponent": 2,
+                                            "decimal": "120.00"
+                                        },
+                                        "satisfied": false
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthenticated"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/MissingScope"
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/Unprocessable"
+                    },
+                    "503": {
+                        "$ref": "#/components/responses/ResolverUnbound"
+                    }
+                }
+            }
+        },
+        "/plans/{order}/tenders": {
+            "parameters": [
+                {
+                    "$ref": "#/components/parameters/OrderReference"
+                }
+            ],
+            "get": {
+                "operationId": "listPlanTenders",
+                "x-route-name": "multi-tender-payments-api.plans.tenders.index",
+                "x-idempotency-key": "none",
+                "tags": [
+                    "Tenders"
+                ],
+                "summary": "Page through a plan's append-only ledger",
+                "description": "Oldest first, ordered by id rather than by `occurred_at`: two entries can share a timestamp, and a page boundary that is not a total order silently drops or repeats a row.\n\nA ledger entry's `idempotency_key` and `payload_hash` are never rendered.",
+                "security": [
+                    {
+                        "apiToken": [
+                            "ecommerce:multi-tender-payments:read"
+                        ]
+                    }
+                ],
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/Page"
+                    },
+                    {
+                        "$ref": "#/components/parameters/PerPage"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "One page of ledger entries.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TenderPage"
+                                },
+                                "example": {
+                                    "data": [
+                                        {
+                                            "id": 1,
+                                            "position": 0,
+                                            "kind": "gift_card",
+                                            "effect": "captured",
+                                            "amount": {
+                                                "minor": 4000,
+                                                "currency": "GBP",
+                                                "exponent": 2,
+                                                "decimal": "40.00"
+                                            },
+                                            "requested": {
+                                                "minor": 10000,
+                                                "currency": "GBP",
+                                                "exponent": 2,
+                                                "decimal": "100.00"
+                                            },
+                                            "partly_spent": true,
+                                            "external_reference": "gc_7734",
+                                            "instalment_reference": null,
+                                            "reverses_tender_id": null,
+                                            "reason": null,
+                                            "occurred_at": "2026-08-12T09:41:00+00:00"
+                                        }
+                                    ],
+                                    "meta": {
+                                        "page": 1,
+                                        "per_page": 25,
+                                        "total": 1,
+                                        "last_page": 1
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthenticated"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/MissingScope"
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/Unprocessable"
+                    },
+                    "503": {
+                        "$ref": "#/components/responses/ResolverUnbound"
+                    }
+                }
+            },
+            "post": {
+                "operationId": "recordTender",
+                "x-route-name": "multi-tender-payments-api.plans.tenders.store",
+                "x-idempotency-key": "required",
+                "tags": [
+                    "Tenders"
+                ],
+                "summary": "Append one tender to the ledger",
+                "description": "The plan is re-admitted against the total the host resolves *now*, and `position` names which admitted tender is being recorded. The module stores no pending plan, so a total that moved between admitting and recording is caught here rather than silently honoured.\n\n`201` when the entry was appended; `200` when the idempotency key replayed one that already existed.\n\nThe two idempotency failures are opposite instructions and are separate classes in the domain, never one class separated by reading a message: `409` means the same key arrived with different facts and retrying will never help; `423` means the first attempt is still running and the identical retry will succeed, and it carries `Retry-After`.\n\nThere is no transaction across gateways. Record one tender at a time, as each institution answers. A decline recorded here leaves every earlier capture exactly where it was.",
+                "security": [
+                    {
+                        "apiToken": [
+                            "ecommerce:multi-tender-payments:write"
+                        ]
+                    }
+                ],
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/IdempotencyKey"
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/RecordTenderRequest"
+                            },
+                            "example": {
+                                "tenders": [
+                                    {
+                                        "kind": "gift_card",
+                                        "amount_minor": 10000,
+                                        "reference": "gc_7734"
+                                    },
+                                    {
+                                        "kind": "card",
+                                        "amount_minor": 6000
+                                    }
+                                ],
+                                "position": 0,
+                                "effect": "captured",
+                                "external_reference": "gc_redemption_88121"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "$ref": "#/components/responses/TenderWritten"
+                    },
+                    "201": {
+                        "$ref": "#/components/responses/TenderWritten"
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthenticated"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/MissingScope"
+                    },
+                    "409": {
+                        "$ref": "#/components/responses/PermanentConflict"
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/Unprocessable"
+                    },
+                    "423": {
+                        "$ref": "#/components/responses/ClaimInFlight"
+                    },
+                    "503": {
+                        "$ref": "#/components/responses/ResolverUnbound"
+                    }
+                }
+            }
+        },
+        "/plans/{order}/admissions": {
+            "parameters": [
+                {
+                    "$ref": "#/components/parameters/OrderReference"
+                }
+            ],
+            "post": {
+                "operationId": "admitTenderPlan",
+                "x-route-name": "multi-tender-payments-api.plans.admissions.store",
+                "x-idempotency-key": "none",
+                "x-side-effects": "none",
+                "tags": [
+                    "Tenders"
+                ],
+                "summary": "Ask whether a plan is admissible, and what each tender would contribute",
+                "description": "Pure arithmetic. Nothing is stored and nothing moves, so no idempotency key is required — there is nothing a repeat could duplicate.\n\nThree settled answers are visible in the response:\n\n- a tender short of what was asked of it is **partly spent**, not refused, and both figures are rendered;\n- a plan exceeding the payable total is **refused** with `422`, never clamped;\n- a plan short of the payable total is fine, and the shortfall is the outstanding balance.\n\nTenders apply in the order declared. No kind has a priority.",
+                "security": [
+                    {
+                        "apiToken": [
+                            "ecommerce:multi-tender-payments:write"
+                        ]
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AdmitTenderPlanRequest"
+                            },
+                            "example": {
+                                "tenders": [
+                                    {
+                                        "kind": "gift_card",
+                                        "amount_minor": 10000,
+                                        "reference": "gc_7734"
+                                    },
+                                    {
+                                        "kind": "card",
+                                        "amount_minor": 6000
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "The plan is admissible. Nothing has been stored.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "data"
+                                    ],
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/components/schemas/Admission"
+                                        }
+                                    }
+                                },
+                                "example": {
+                                    "data": {
+                                        "order_reference": "order-9f2c",
+                                        "currency": "GBP",
+                                        "payable_total": {
+                                            "minor": 16000,
+                                            "currency": "GBP",
+                                            "exponent": 2,
+                                            "decimal": "160.00"
+                                        },
+                                        "allocated": {
+                                            "minor": 10000,
+                                            "currency": "GBP",
+                                            "exponent": 2,
+                                            "decimal": "100.00"
+                                        },
+                                        "outstanding": {
+                                            "minor": 6000,
+                                            "currency": "GBP",
+                                            "exponent": 2,
+                                            "decimal": "60.00"
+                                        },
+                                        "tenders": [
+                                            {
+                                                "position": 0,
+                                                "kind": "gift_card",
+                                                "requested": {
+                                                    "minor": 10000,
+                                                    "currency": "GBP",
+                                                    "exponent": 2,
+                                                    "decimal": "100.00"
+                                                },
+                                                "admitted": {
+                                                    "minor": 4000,
+                                                    "currency": "GBP",
+                                                    "exponent": 2,
+                                                    "decimal": "40.00"
+                                                },
+                                                "partly_spent": true,
+                                                "reference": "gc_7734",
+                                                "instalment_reference": null
+                                            }
+                                        ]
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthenticated"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/MissingScope"
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/Unprocessable"
+                    },
+                    "503": {
+                        "$ref": "#/components/responses/ResolverUnbound"
+                    }
+                }
+            }
+        },
+        "/plans/{order}/tenders/{tender}/reversals": {
+            "parameters": [
+                {
+                    "$ref": "#/components/parameters/OrderReference"
+                },
+                {
+                    "$ref": "#/components/parameters/TenderId"
+                }
+            ],
+            "post": {
+                "operationId": "reverseTender",
+                "x-route-name": "multi-tender-payments-api.plans.tenders.reversals.store",
+                "x-idempotency-key": "required",
+                "tags": [
+                    "Tenders"
+                ],
+                "summary": "Reverse a captured tender by appending a reversal that carries its reason",
+                "description": "The ledger has no update path and no delete path. A reversal is a **new** entry pointing at the one it reverses, because the capture it undoes happened at an institution this module does not control.\n\nA reversal is **not** a refund. Deciding that money is owed back to a customer belongs to `ecommerce-refunds`, and nothing here creates anything there.\n\nIdempotency is carried by the ledger: a tender can be reversed exactly once. Replaying the identical reversal returns the entry that exists (`200`); a second reversal under a different reason is a permanent conflict (`409`). The `Idempotency-Key` header is required all the same, so that every state-changing operation here has one contract.",
+                "security": [
+                    {
+                        "apiToken": [
+                            "ecommerce:multi-tender-payments:write"
+                        ]
+                    }
+                ],
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/IdempotencyKey"
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ReverseTenderRequest"
+                            },
+                            "example": {
+                                "reason": "Gift card redemption failed at the issuer after capture."
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "$ref": "#/components/responses/TenderWritten"
+                    },
+                    "201": {
+                        "$ref": "#/components/responses/TenderWritten"
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthenticated"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/MissingScope"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/TenderNotFound"
+                    },
+                    "409": {
+                        "$ref": "#/components/responses/PermanentConflict"
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/Unprocessable"
+                    },
+                    "503": {
+                        "$ref": "#/components/responses/ResolverUnbound"
+                    }
+                }
+            }
+        }
+    },
+    "components": {
+        "securitySchemes": {
+            "apiToken": {
+                "type": "oauth2",
+                "description": "A bearer token whose abilities are checked with `tokenCan()`. An actor that cannot answer `tokenCan()` is refused, not admitted — an unanswered authorisation question is an exposure.\n\nScopes are transport capabilities. This package makes no business authorisation decision about a plan; that belongs to the domain module.",
+                "flows": {
+                    "clientCredentials": {
+                        "tokenUrl": "/oauth/token",
+                        "scopes": {
+                            "ecommerce:multi-tender-payments:read": "Read plans, balances and the tender ledger.",
+                            "ecommerce:multi-tender-payments:write": "Admit plans, record tenders and reverse them."
+                        }
+                    }
+                }
+            }
+        },
+        "parameters": {
+            "OrderReference": {
+                "name": "order",
+                "in": "path",
+                "required": true,
+                "description": "The host's opaque reference for the order. The module never interprets it and never looks anything up with it — it hands it to `ResolvesPayableTotal`.",
+                "schema": {
+                    "type": "string",
+                    "maxLength": 255
+                },
+                "example": "order-9f2c"
+            },
+            "TenderId": {
+                "name": "tender",
+                "in": "path",
+                "required": true,
+                "description": "The ledger entry being reversed. It must belong to this plan; one that does not is a 404 rather than a cross-plan reversal.",
+                "schema": {
+                    "type": "integer",
+                    "minimum": 1
+                },
+                "example": 1
+            },
+            "IdempotencyKey": {
+                "name": "Idempotency-Key",
+                "in": "header",
+                "required": true,
+                "description": "Required on every state-changing operation, so that a repeat is a repeat rather than a second movement of money.\n\nMint it once, when the step is entered, and send the same value on every retry. A key minted at click time defeats the mechanism entirely.\n\nOn a `409` do **not** mint a fresh key: a fresh key on a conflict records a second tender for money that moved once.",
+                "schema": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 255
+                },
+                "example": "5b0f2f4e-0e0f-4d5c-9a7a-1b2c3d4e5f60"
+            },
+            "Page": {
+                "name": "page",
+                "in": "query",
+                "required": false,
+                "description": "1-based page number.",
+                "schema": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "default": 1
+                },
+                "example": 1
+            },
+            "PerPage": {
+                "name": "per_page",
+                "in": "query",
+                "required": false,
+                "description": "Entries per page, capped by config('multi-tender-payments-api.pagination.max_per_page').",
+                "schema": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100,
+                    "default": 25
+                },
+                "example": 25
+            }
+        },
+        "schemas": {
+            "Money": {
+                "type": "object",
+                "title": "Money",
+                "description": "Integer minor units, with a decimal presentation carried as a **string**.\n\n`decimal` is a string and never a number: `19.99` in JSON is a double in every client, and `(int) (19.99 * 100)` is 1998. Nothing in this API returns a floating-point money value.",
+                "required": [
+                    "minor",
+                    "currency",
+                    "exponent",
+                    "decimal"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                    "minor": {
+                        "type": "integer",
+                        "description": "The amount, in the currency's minor units."
+                    },
+                    "currency": {
+                        "type": "string",
+                        "minLength": 3,
+                        "maxLength": 3,
+                        "description": "ISO 4217 alphabetic code. It has one origin: the payable total the host resolved."
+                    },
+                    "exponent": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "description": "Minor units per major unit, as a power of ten. Told to the module, never looked up."
+                    },
+                    "decimal": {
+                        "type": "string",
+                        "description": "The decimal presentation. A string, always."
+                    }
+                },
+                "examples": [
+                    {
+                        "minor": 1999,
+                        "currency": "GBP",
+                        "exponent": 2,
+                        "decimal": "19.99"
+                    }
+                ]
+            },
+            "TenderKind": {
+                "type": "string",
+                "title": "TenderKind",
+                "description": "No kind has a priority. Tenders apply in the order the caller declares.",
+                "enum": [
+                    "card",
+                    "gift_card",
+                    "store_credit",
+                    "deposit",
+                    "instalment",
+                    "bank_transfer",
+                    "cash"
+                ]
+            },
+            "TenderEffect": {
+                "type": "string",
+                "title": "TenderEffect",
+                "description": "What the entry does to the balance: `captured` subtracts, `reversed` adds back, `declined` moves nothing. There is no \"plan failed\" effect.",
+                "enum": [
+                    "captured",
+                    "declined",
+                    "reversed"
+                ]
+            },
+            "PaymentPlan": {
+                "type": "object",
+                "title": "PaymentPlan",
+                "description": "No status field and no cached total. `satisfied` is the fold reaching zero.",
+                "required": [
+                    "order_reference",
+                    "currency",
+                    "payable_total",
+                    "outstanding",
+                    "satisfied"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                    "order_reference": {
+                        "type": "string"
+                    },
+                    "currency": {
+                        "type": "string",
+                        "minLength": 3,
+                        "maxLength": 3
+                    },
+                    "payable_total": {
+                        "$ref": "#/components/schemas/Money"
+                    },
+                    "outstanding": {
+                        "$ref": "#/components/schemas/Money"
+                    },
+                    "satisfied": {
+                        "type": "boolean"
+                    }
+                }
+            },
+            "Tender": {
+                "type": "object",
+                "title": "Tender",
+                "description": "One entry in the append-only ledger, and simultaneously the allocation record: which tender covered which portion of which plan, in which declared position.\n\n`idempotency_key` and `payload_hash` are deliberately absent.",
+                "required": [
+                    "id",
+                    "position",
+                    "kind",
+                    "effect",
+                    "amount",
+                    "requested",
+                    "partly_spent",
+                    "occurred_at"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                    "id": {
+                        "type": "integer"
+                    },
+                    "position": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "description": "The caller's declared order, recorded rather than inferred."
+                    },
+                    "kind": {
+                        "$ref": "#/components/schemas/TenderKind"
+                    },
+                    "effect": {
+                        "$ref": "#/components/schemas/TenderEffect"
+                    },
+                    "amount": {
+                        "$ref": "#/components/schemas/Money"
+                    },
+                    "requested": {
+                        "$ref": "#/components/schemas/Money"
+                    },
+                    "partly_spent": {
+                        "type": "boolean",
+                        "description": "True when the tender contributed less than was asked of it. Partial satisfaction is the normal case, not the error case."
+                    },
+                    "external_reference": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "description": "Whatever the module that actually moved the money handed back."
+                    },
+                    "instalment_reference": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "description": "An external schedule identifier and nothing more. This module runs no scheduler and holds no due date as authoritative."
+                    },
+                    "reverses_tender_id": {
+                        "type": [
+                            "integer",
+                            "null"
+                        ]
+                    },
+                    "reason": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "description": "Required on a reversal."
+                    },
+                    "occurred_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                }
+            },
+            "TenderPage": {
+                "type": "object",
+                "title": "TenderPage",
+                "required": [
+                    "data",
+                    "meta"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Tender"
+                        }
+                    },
+                    "meta": {
+                        "$ref": "#/components/schemas/PageMeta"
+                    }
+                }
+            },
+            "PageMeta": {
+                "type": "object",
+                "title": "PageMeta",
+                "required": [
+                    "page",
+                    "per_page",
+                    "total",
+                    "last_page"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                    "page": {
+                        "type": "integer",
+                        "minimum": 1
+                    },
+                    "per_page": {
+                        "type": "integer",
+                        "minimum": 1
+                    },
+                    "total": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "last_page": {
+                        "type": "integer",
+                        "minimum": 1
+                    }
+                }
+            },
+            "TenderWritten": {
+                "type": "object",
+                "title": "TenderWritten",
+                "description": "The entry that was written, and what the plan owes now that it exists.",
+                "required": [
+                    "data",
+                    "plan"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                    "data": {
+                        "$ref": "#/components/schemas/Tender"
+                    },
+                    "plan": {
+                        "$ref": "#/components/schemas/PaymentPlan"
+                    }
+                }
+            },
+            "PlannedTender": {
+                "type": "object",
+                "title": "PlannedTender",
+                "description": "What a caller is **offering**, which is not one of the three figures this API refuses to accept. Declare an `amount_minor` or a `share`, never both.\n\nThere is no currency here: every amount is denominated in the currency of the payable total the host resolved, so a tender cannot disagree with its order.",
+                "required": [
+                    "kind"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                    "kind": {
+                        "$ref": "#/components/schemas/TenderKind"
+                    },
+                    "amount_minor": {
+                        "type": [
+                            "integer",
+                            "null"
+                        ],
+                        "minimum": 0,
+                        "description": "What this tender is asked to contribute, in the order's minor units."
+                    },
+                    "share": {
+                        "type": [
+                            "integer",
+                            "null"
+                        ],
+                        "minimum": 0,
+                        "description": "A relative weight. The payable total is split across the weights exactly, by largest remainder, with ties broken in declared order and no residue."
+                    },
+                    "reference": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 255,
+                        "description": "Whatever the host's capacity resolver needs to identify this instrument — a gift card code, a store credit account. Never interpreted here, and never a balance."
+                    },
+                    "instalment_reference": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 255
+                    }
+                }
+            },
+            "AdmitTenderPlanRequest": {
+                "type": "object",
+                "title": "AdmitTenderPlanRequest",
+                "required": [
+                    "tenders"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                    "tenders": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 20,
+                        "items": {
+                            "$ref": "#/components/schemas/PlannedTender"
+                        }
+                    }
+                }
+            },
+            "RecordTenderRequest": {
+                "type": "object",
+                "title": "RecordTenderRequest",
+                "required": [
+                    "tenders",
+                    "position"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                    "tenders": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 20,
+                        "items": {
+                            "$ref": "#/components/schemas/PlannedTender"
+                        }
+                    },
+                    "position": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "description": "Which admitted tender this call is recording."
+                    },
+                    "effect": {
+                        "type": "string",
+                        "enum": [
+                            "captured",
+                            "declined"
+                        ],
+                        "default": "captured",
+                        "description": "A reversal is not recorded here; it has its own operation."
+                    },
+                    "external_reference": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 255,
+                        "description": "What the module that moved the money handed back."
+                    }
+                }
+            },
+            "ReverseTenderRequest": {
+                "type": "object",
+                "title": "ReverseTenderRequest",
+                "required": [
+                    "reason"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                    "reason": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 255,
+                        "description": "Required. A reversal without one is refused."
+                    }
+                }
+            },
+            "Problem": {
+                "type": "object",
+                "title": "Problem",
+                "description": "Every refusal in this API has this shape. `code` is stable and is what a client branches on; the message is for a human.",
+                "required": [
+                    "error"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                    "error": {
+                        "type": "object",
+                        "required": [
+                            "code",
+                            "message"
+                        ],
+                        "additionalProperties": false,
+                        "properties": {
+                            "code": {
+                                "type": "string"
+                            },
+                            "message": {
+                                "type": "string"
+                            },
+                            "retry_after": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "description": "Seconds. Present only on 423."
+                            },
+                            "errors": {
+                                "type": "object",
+                                "description": "Field-keyed validation messages. Present only on a validation failure.",
+                                "additionalProperties": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "responses": {
+            "TenderWritten": {
+                "description": "The ledger entry, and the plan's balance after it.",
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "$ref": "#/components/schemas/TenderWritten"
+                        },
+                        "example": {
+                            "data": {
+                                "id": 1,
+                                "position": 0,
+                                "kind": "gift_card",
+                                "effect": "captured",
+                                "amount": {
+                                    "minor": 4000,
+                                    "currency": "GBP",
+                                    "exponent": 2,
+                                    "decimal": "40.00"
+                                },
+                                "requested": {
+                                    "minor": 10000,
+                                    "currency": "GBP",
+                                    "exponent": 2,
+                                    "decimal": "100.00"
+                                },
+                                "partly_spent": true,
+                                "external_reference": "gc_redemption_88121",
+                                "instalment_reference": null,
+                                "reverses_tender_id": null,
+                                "reason": null,
+                                "occurred_at": "2026-08-12T09:41:00+00:00"
+                            },
+                            "plan": {
+                                "order_reference": "order-9f2c",
+                                "currency": "GBP",
+                                "payable_total": {
+                                    "minor": 16000,
+                                    "currency": "GBP",
+                                    "exponent": 2,
+                                    "decimal": "160.00"
+                                },
+                                "outstanding": {
+                                    "minor": 12000,
+                                    "currency": "GBP",
+                                    "exponent": 2,
+                                    "decimal": "120.00"
+                                },
+                                "satisfied": false
+                            }
+                        }
+                    }
+                }
+            },
+            "Unauthenticated": {
+                "description": "No authenticated actor.",
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "$ref": "#/components/schemas/Problem"
+                        },
+                        "example": {
+                            "error": {
+                                "code": "unauthenticated",
+                                "message": "This operation requires an authenticated actor."
+                            }
+                        }
+                    }
+                }
+            },
+            "MissingScope": {
+                "description": "The actor's token does not carry the scope this operation needs — or cannot answer `tokenCan()` at all, which is refused rather than admitted.",
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "$ref": "#/components/schemas/Problem"
+                        },
+                        "example": {
+                            "error": {
+                                "code": "missing_scope",
+                                "message": "This operation requires the [ecommerce:multi-tender-payments:write] scope."
+                            }
+                        }
+                    }
+                }
+            },
+            "TenderNotFound": {
+                "description": "No such tender in this plan's ledger.",
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "$ref": "#/components/schemas/Problem"
+                        },
+                        "example": {
+                            "error": {
+                                "code": "tender_not_found",
+                                "message": "Tender [77] is not in the ledger of order [order-9f2c]."
+                            }
+                        }
+                    }
+                }
+            },
+            "PermanentConflict": {
+                "description": "A permanent conflict. Retrying will get the same answer forever, and minting a fresh idempotency key would record a second tender for money that moved once.\n\n`idempotency_conflict` — the same key arrived with different facts.\n`reversal_conflict` — the tender is already reversed under a different reason.\n`tender_ledger_is_append_only` — something tried to edit or delete a recorded tender.",
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "$ref": "#/components/schemas/Problem"
+                        },
+                        "example": {
+                            "error": {
+                                "code": "idempotency_conflict",
+                                "message": "Idempotency key [5b0f2f4e] was already used for a different tender."
+                            }
+                        }
+                    }
+                }
+            },
+            "Unprocessable": {
+                "description": "The request is well-formed but cannot be acted on.\n\n`payable_total_unknown` — the resolver is bound and answered null for this order. A fact about the order, and **not** the 503 below.\n`over_allocated_plan` — the tenders exceed the payable total. Refused, never clamped.\n`mixed_currency_plan` — a currency or exponent disagrees with the order's.\n`cannot_allocate` — the arithmetic has no exact answer.\n`cannot_reverse_tender` — not captured, already reversed, or no reason given.\n`idempotency_key_required` — a state-changing operation arrived without one.\n`position_not_admitted` — no admitted tender at that position.\n`tender_declaration_ambiguous` — a tender declared both an amount and a share.\n`validation_failed` — see `error.errors`.",
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "$ref": "#/components/schemas/Problem"
+                        },
+                        "example": {
+                            "error": {
+                                "code": "payable_total_unknown",
+                                "message": "No payable total is known for order [order-9f2c]."
+                            }
+                        }
+                    }
+                }
+            },
+            "ClaimInFlight": {
+                "description": "Transient. The same idempotency key is being processed right now, and the identical retry will succeed. Wait `Retry-After` seconds and send the **same** key.",
+                "headers": {
+                    "Retry-After": {
+                        "description": "Seconds to wait. Matches the ten-second TTL the domain takes its idempotency lock for.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 0
+                        },
+                        "example": 10
+                    }
+                },
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "$ref": "#/components/schemas/Problem"
+                        },
+                        "example": {
+                            "error": {
+                                "code": "tender_claim_in_flight",
+                                "message": "Idempotency key [5b0f2f4e] is already being processed.",
+                                "retry_after": 10
+                            }
+                        }
+                    }
+                }
+            },
+            "ResolverUnbound": {
+                "description": "The deployment has not bound a contract the domain publishes, so no money figure can be resolved. This is a deployment fault affecting every order — not a fact about this one — and it is deliberately a different status from the 422 above. A half-configured deployment can read nothing that needs a total and can record nothing that moves money, which is the correct failure direction.",
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "$ref": "#/components/schemas/Problem"
+                        },
+                        "example": {
+                            "error": {
+                                "code": "resolver_unbound",
+                                "message": "The deployment has not bound [Liberu\\Ecommerce\\MultiTenderPayments\\Contracts\\ResolvesPayableTotal], so no money figure can be resolved."
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

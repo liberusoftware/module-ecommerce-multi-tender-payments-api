@@ -1,0 +1,5 @@
+/vendor/
+/.phpunit.cache/
+composer.lock
+pint.phar
+.phpunit.result.cache

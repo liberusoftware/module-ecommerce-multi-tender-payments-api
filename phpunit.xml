@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="vendor/autoload.php"
+         colors="true"
+>
+    <testsuites>
+        <testsuite name="Package">
+            <directory suffix="Test.php">tests</directory>
+        </testsuite>
+        <!-- The fleet's shared module boundary suite. It ships in the testbench so
+             that a new rule is a testbench release every repository picks up,
+             rather than 44 hand-edited copies. -->
+        <testsuite name="Boundary">
+            <directory suffix="Test.php">vendor/liberusoftware/package-testbench/tests/Boundary/Module</directory>
+        </testsuite>
+    </testsuites>
+    <source>
+        <include>
+            <directory>src</directory>
+        </include>
+    </source>
+</phpunit>

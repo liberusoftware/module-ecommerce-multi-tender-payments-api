@@ -1,0 +1,22 @@
+{
+    "name": "ecommerce-multi-tender-payments-api",
+    "description": "Presents the Multi-Tender Payments domain over HTTP. It renders the module's refusals as status codes and never accepts a total, a balance or a capacity from a caller.",
+    "version": "0.1.0",
+    "category": "adapter",
+    "provider": "Liberu\\Ecommerce\\MultiTenderPayments\\Api\\MultiTenderPaymentsApiServiceProvider",
+    "features": [
+        "Read a payment plan with its server-resolved payable total and outstanding balance",
+        "Page through the append-only tender ledger of a plan",
+        "Admit a tender plan as pure arithmetic, storing and moving nothing",
+        "Record a tender against a plan under a required idempotency key",
+        "Reverse a captured tender as a new ledger entry carrying its reason",
+        "Two-class idempotency rendered as 409 permanent and 423 transient with Retry-After",
+        "An unbound payable-total resolver rendered as 503, distinct from a 422 unknown total",
+        "An OpenAPI 3.1 fragment with stable operation ids, kept in parity with the router both ways"
+    ],
+    "requires": {
+        "packages": {
+            "liberusoftware/ecommerce-multi-tender-payments": "^0.1.0"
+        }
+    }
+}
